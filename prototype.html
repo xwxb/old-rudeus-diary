@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ルーデウスの日記</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Authentic Japanese Handwriting & Classical Serif Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&family=Shippori+Mincho:wght@400;500;600&family=Noto+Serif+JP:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --desk-dark: #0a0806;
+      --paper-base: #e7dbbf;
+      --paper-tint: #f2e7ce;
+      --stain-amber: rgba(125, 82, 38, 0.13);
+      --stain-dark: rgba(50, 28, 14, 0.10);
+      --foxing-spot: rgba(145, 90, 42, 0.16);
+      --ink-rich: #211913;
+      --ink-bleed: rgba(33, 25, 19, 0.3);
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--desk-dark);
+      background-image:
+        radial-gradient(ellipse at 50% 50%, rgba(60, 38, 22, 0.45) 0%, rgba(6, 5, 4, 0.98) 80%),
+        repeating-linear-gradient(90deg, rgba(20, 14, 10, 0.3) 0px, rgba(12, 8, 6, 0.3) 180px, rgba(28, 18, 12, 0.25) 360px);
+      /* Default to Klee One: Authentic Japanese pen/textbook handwriting style */
+      font-family: 'Klee One', 'Shippori Mincho', 'Noto Serif JP', serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Organic irregular yellowed paper texture with mottled shading */
+    .aged-parchment {
+      background-color: var(--paper-base);
+      background-image:
+        radial-gradient(circle at 18% 22%, var(--stain-amber) 0%, transparent 32%),
+        radial-gradient(circle at 84% 78%, var(--stain-dark) 0%, transparent 40%),
+        radial-gradient(circle at 74% 20%, var(--foxing-spot) 0%, transparent 8%),
+        radial-gradient(circle at 26% 80%, var(--foxing-spot) 0%, transparent 10%),
+        radial-gradient(circle at 92% 38%, rgba(130, 75, 28, 0.1) 0%, transparent 14%),
+        radial-gradient(circle at 8% 58%, rgba(110, 65, 22, 0.12) 0%, transparent 11%),
+        radial-gradient(ellipse at 50% 50%, var(--paper-tint) 10%, transparent 75%),
+        linear-gradient(to right, rgba(125, 85, 45, 0.2) 0%, transparent 8%, transparent 92%, rgba(125, 85, 45, 0.2) 100%),
+        linear-gradient(to bottom, rgba(125, 85, 45, 0.22) 0%, transparent 6%, transparent 92%, rgba(125, 85, 45, 0.24) 100%);
+      position: relative;
+    }
+
+    /* Paper fiber and pulp noise */
+    .aged-parchment::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.38;
+      background-image: 
+        radial-gradient(rgba(50, 30, 15, 0.12) 1px, transparent 0),
+        repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(40, 20, 5, 0.025) 6px);
+      background-size: 8px 8px, 100% 100%;
+      mix-blend-mode: multiply;
+      z-index: 1;
+    }
+
+    /* Subtle paper handling creases */
+    .aged-parchment::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.55;
+      background: 
+        linear-gradient(115deg, transparent 44%, rgba(255,255,255,0.1) 48%, rgba(0,0,0,0.04) 50%, transparent 54%),
+        linear-gradient(65deg, transparent 56%, rgba(0,0,0,0.035) 59%, rgba(255,255,255,0.07) 62%, transparent 66%);
+      z-index: 2;
+    }
+
+    /* Deckled edge filter */
+    .deckled-edge {
+      filter: url(#paper-torn-filter);
+    }
+
+    /* Subtle 3D curvature where both pages meet seamlessly in the middle (No black bar) */
+    .curve-left {
+      box-shadow: inset -18px 0 24px -10px rgba(35, 20, 10, 0.22);
+    }
+    .curve-right {
+      box-shadow: inset 18px 0 24px -10px rgba(35, 20, 10, 0.22);
+    }
+
+    /* Central Book Spine Valley: subtle crease line */
+    .spine-crease {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 2px;
+      transform: translateX(-50%);
+      background: linear-gradient(to bottom, rgba(30, 15, 6, 0.25), rgba(30, 15, 6, 0.45) 50%, rgba(30, 15, 6, 0.25));
+      box-shadow: 0 0 12px 3px rgba(18, 9, 3, 0.28);
+      pointer-events: none;
+      z-index: 30;
+    }
+
+    /* 3D Stage & Flipping Mechanics */
+    .book-viewport {
+      perspective: 3200px;
+      perspective-origin: 50% 50%;
+    }
+
+    .book-stage {
+      position: relative;
+      transform-style: preserve-3d;
+      box-shadow:
+        0 35px 70px rgba(0, 0, 0, 0.9),
+        0 14px 28px rgba(0, 0, 0, 0.65);
+    }
+
+    /* Independent Page Boxes with Symmetric Gutter & Margins */
+    .page-box {
+      width: 50%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      position: relative;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+
+    /* Left Page: Generous outer margin on the left, safe spine gutter on the right */
+    .page-box-left {
+      padding-top: clamp(22px, 3.6vh, 42px);
+      padding-bottom: clamp(16px, 2.8vh, 32px);
+      padding-left: clamp(26px, 4vw, 56px);  /* Outer margin */
+      padding-right: clamp(20px, 3.2vw, 44px); /* Spine gutter: text never touches center */
+    }
+
+    /* Right Page: Safe spine gutter on the left, generous outer margin on the right */
+    .page-box-right {
+      padding-top: clamp(22px, 3.6vh, 42px);
+      padding-bottom: clamp(16px, 2.8vh, 32px);
+      padding-left: clamp(20px, 3.2vw, 44px);  /* Spine gutter: text never touches center */
+      padding-right: clamp(26px, 4vw, 56px); /* Outer margin */
+    }
+
+    /* The turning leaf element */
+    .turning-leaf {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      width: 50%;
+      transform-style: preserve-3d;
+      z-index: 50;
+      pointer-events: none;
+      display: none;
+      transition: transform 0.82s cubic-bezier(0.24, 0.9, 0.32, 1);
+    }
+
+    .turning-leaf.flipping {
+      display: block;
+    }
+
+    .leaf-side {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      overflow: hidden;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .leaf-back {
+      transform: rotateY(180deg);
+    }
+
+    .turn-shadow {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 40;
+      opacity: 0;
+      transition: opacity 0.82s ease;
+    }
+
+    /* Translucent chalky vertical dividers with generous horizontal breathing space */
+    .column-divider {
+      width: 2px;
+      height: 96%;
+      align-self: flex-start;
+      margin-top: 0.5%;
+      margin-left: clamp(5px, 0.7vw, 12px);
+      margin-right: clamp(5px, 0.7vw, 12px);
+      flex-shrink: 0;
+      background: linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0.15) 0%,
+        rgba(255, 255, 255, 0.55) 12%,
+        rgba(255, 255, 255, 0.55) 80%,
+        rgba(255, 255, 255, 0.12) 100%
+      );
+      box-shadow: 0 0 3px rgba(255, 255, 255, 0.38);
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* Self-contained slot for each diary entry with dedicated horizontal padding */
+    .column-slot {
+      flex: 1 1 0;
+      min-width: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: row-reverse;
+      justify-content: center; /* Horizontally centers the text lines inside this slot */
+      align-items: flex-start;  /* Top-align Japanese vertical text */
+      position: relative;
+      z-index: 10;
+      padding: 0 clamp(3px, 0.4vw, 8px);
+    }
+
+    /* Japanese traditional Right-to-Left vertical typography */
+    .vertical-rl {
+      writing-mode: vertical-rl;
+      text-orientation: upright;
+      -webkit-writing-mode: vertical-rl;
+      -ms-writing-mode: tb-rl;
+      letter-spacing: 0.08em;
+      line-height: 1.56;
+      font-size: clamp(11.5px, 1.12vw, 14.8px);
+      max-width: 100%;
+    }
+
+    .vertical-rl p {
+      margin: 0;
+      margin-left: clamp(2px, 0.28vw, 5px);
+      text-align: justify;
+      text-justify: inter-ideograph;
+    }
+
+    /* Rich handwritten ink with medium-bold weight (SemiBold 600) */
+    .ink-text {
+      color: var(--ink-rich);
+      font-weight: 600;
+      text-shadow: 0 0 0.45px var(--ink-bleed);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Interactive hover cursor hints on book sides */
+    .left-side-trigger {
+      cursor: w-resize;
+    }
+    .right-side-trigger {
+      cursor: e-resize;
+    }
+  </style>
+</head>
+<body class="w-screen h-screen flex items-center justify-center p-0 m-0">
+
+  <!-- SVG Filter for Organic Deckled Edge -->
+  <svg class="absolute w-0 h-0 pointer-events-none" aria-hidden="true">
+    <defs>
+      <filter id="paper-torn-filter" x="-5%" y="-5%" width="110%" height="110%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="4" result="noise" />
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.2" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+    </defs>
+  </svg>
+
+  <main class="w-full h-full flex items-center justify-center p-2 sm:p-5 md:p-8 select-none">
+    
+    <div class="book-viewport w-full max-w-[1260px] aspect-[1.46/1] max-h-[94vh] flex items-center justify-center">
+
+      <!-- Complete Open Diary Physical Book -->
+      <div id="book-stage" class="book-stage w-full h-full relative rounded-sm flex">
+
+        <!-- Outer Exposed Weathered Wooden Backing & Metal Rivets -->
+        <div class="absolute -inset-[7px] sm:-inset-[11px] rounded-[5px] bg-[#1a110a] pointer-events-none shadow-2xl -z-10 border border-[#2b1c11]/80"
+             style="background-image: radial-gradient(circle at 50% 50%, rgba(60,35,18,0.3) 0%, rgba(10,6,4,0.9) 100%), repeating-linear-gradient(0deg, rgba(0,0,0,0.2) 0px, transparent 1px, transparent 3px);">
+          <!-- Metal rivets visible on outer binding edges -->
+          <div class="absolute right-0 top-6 w-3 sm:w-4 h-10 bg-gradient-to-l from-stone-400/30 to-stone-800/80 rounded-l border-y border-stone-600/40"></div>
+          <div class="absolute right-0 top-1/3 w-3 sm:w-4 h-10 bg-gradient-to-l from-stone-400/30 to-stone-800/80 rounded-l border-y border-stone-600/40"></div>
+          <div class="absolute right-0 top-2/3 w-3 sm:w-4 h-10 bg-gradient-to-l from-stone-400/30 to-stone-800/80 rounded-l border-y border-stone-600/40"></div>
+          <div class="absolute right-0 bottom-6 w-3 sm:w-4 h-10 bg-gradient-to-l from-stone-400/30 to-stone-800/80 rounded-l border-y border-stone-600/40"></div>
+        </div>
+
+        <!-- Central subtle book spine crease -->
+        <div class="spine-crease"></div>
+
+        <!-- ==============================================
+             LEFT PAGE BOX (Independent DIV with dedicated padding)
+             ============================================== -->
+        <div id="left-page-container" class="page-box page-box-left aged-parchment curve-left deckled-edge left-side-trigger">
+          <!-- Text columns container restricted to ~72% height to leave clear bottom margin -->
+          <div id="left-page-content" class="w-full h-[72%] flex flex-row-reverse justify-between items-start">
+            <!-- Content populated by JavaScript -->
+          </div>
+        </div>
+
+        <!-- ==============================================
+             RIGHT PAGE BOX (Independent DIV with dedicated padding)
+             ============================================== -->
+        <div id="right-page-container" class="page-box page-box-right aged-parchment curve-right deckled-edge right-side-trigger">
+          <!-- Text columns container restricted to ~72% height to leave clear bottom margin -->
+          <div id="right-page-content" class="w-full h-[72%] flex flex-row-reverse justify-between items-start">
+            <!-- Content populated by JavaScript -->
+          </div>
+        </div>
+
+        <!-- ==============================================
+             DYNAMIC 3D TURNING LEAF (Active only during flip)
+             ============================================== -->
+        <div id="turning-leaf" class="turning-leaf deckled-edge">
+          <!-- Front Face of the turning leaf -->
+          <div id="leaf-front" class="leaf-side aged-parchment">
+            <div id="leaf-front-content" class="w-full h-[72%] flex flex-row-reverse justify-between items-start"></div>
+            <div id="leaf-front-shadow" class="turn-shadow"></div>
+          </div>
+          <!-- Back Face of the turning leaf -->
+          <div id="leaf-back" class="leaf-side leaf-back aged-parchment">
+            <div id="leaf-back-content" class="w-full h-[72%] flex flex-row-reverse justify-between items-start"></div>
+            <div id="leaf-back-shadow" class="turn-shadow"></div>
+          </div>
+        </div>
+
+        <!-- Receiver Page Shadow Cast during 3D flip -->
+        <div id="under-shadow-left" class="absolute left-0 top-0 w-1/2 h-full pointer-events-none z-20 opacity-0 transition-opacity duration-700 bg-gradient-to-r from-transparent via-stone-900/15 to-stone-900/35"></div>
+        <div id="under-shadow-right" class="absolute right-0 top-0 w-1/2 h-full pointer-events-none z-20 opacity-0 transition-opacity duration-700 bg-gradient-to-l from-transparent via-stone-900/15 to-stone-900/35"></div>
+
+      </div>
+    </div>
+  </main>
+  <script>
+    /*
+      Structured Spreads:
+      - Each column entry is encased in a dedicated `.column-slot` that centers text.
+      - Line-height is adjusted to 1.62 and font-size scales from 11.5px to 15px so 5-line entries fit without clipping.
+      - Spine gutters ensure no words ever hide near the central crease.
+    */
+    const diarySpreads = [
+      {
+        // Spread 0: Exact reproduction of page01_2.jpg on the right, everyday life on the left
+        right: `
+          <!-- Column 1 (Rightmost) -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>今日から日記を付けようと思う。</p>
+              <p>それにしてもこの十日は色々あった。</p>
+              <p>ペルギウスのこと、ゼニスのこと。</p>
+              <p>召喚魔術に、転移魔術。</p>
+              <p>やることは多く、忘れないようにいろいろと書き記していこうと思う。</p>
+            </div>
+          </div>
+          
+          <div class="column-divider"></div>
+
+          <!-- Column 2 -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>アイシャが朝から「変なネズミが死んでた」とブルーになっていた。</p>
+              <p>ネズミ、嫌いなのだろうか。</p>
+            </div>
+          </div>
+
+          <div class="column-divider"></div>
+
+          <!-- Column 3 -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>近所で魔石病にかかった猫が発見されたらしい。</p>
+              <p>怖いことだ。</p>
+              <p>家族には、手洗い、うがいを徹底するように言っておこう。</p>
+            </div>
+          </div>
+
+          <div class="column-divider"></div>
+
+          <!-- Column 4 (Leftmost of Right Page - Near Spine Gutter) -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>なんと、エリナリーゼが妊娠したらしい。</p>
+              <p>クリフは不安そうだったが、エリナリーゼは嬉しそうだ。</p>
+              <p>一応、みんなで祝福しておいた。</p>
+              <p>こういう時はパーッと騒ぐべきだ。</p>
+            </div>
+          </div>
+        `,
+        left: `
+          <!-- Column 1 (Rightmost of Left Page - Near Spine Gutter) -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>シルフィとルーシーと三人で庭の手入れをした。</p>
+              <p>日差しが心地よく、穏やかな一日だった。</p>
+              <p>こういう平穏が、ずっと続けばいいと心から願う。</p>
+            </div>
+          </div>
+
+          <div class="column-divider"></div>
+
+          <!-- Column 2 -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>ロキシーのつわりが少し重いようだ。</p>
+              <p>体を冷やさないよう、温かいスープを作って食べさせた。</p>
+              <p>「美味しいです」と笑ってくれたのが嬉しかった。</p>
+            </div>
+          </div>
+
+          <div class="column-divider"></div>
+
+          <!-- Column 3 -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>ザノバと自動人形の関節機構について議論。</p>
+              <p>クリフも加わり、神子や呪子についての考察を深める。</p>
+              <p>魔術の研究は尽きることがない。</p>
+            </div>
+          </div>
+
+          <div class="column-divider"></div>
+
+          <!-- Column 4 (Leftmost of Left Page) -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>明日は研究室の整理をしよう。</p>
+              <p>地下室の掃除もアイシャに頼まなければ。</p>
+              <p>ネズミの死骸の件、念のため消毒しておこうか。</p>
+            </div>
+          </div>
+        `
+      },
+      {
+        // Spread 1: Exact reproduction of image_d5fefd.jpg!
+        right: `
+          <!-- Column 1 (Rightmost) -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>ロキシーの熱が下がらない。</p>
+              <p>ただの風邪や妊娠の悪阻ではない気がする。</p>
+              <p>脈拍が異常に早く、皮膚が青白く冷たい。</p>
+              <p>嫌な胸騒ぎが消えない。</p>
+            </div>
+          </div>
+
+          <div class="column-divider"></div>
+
+          <!-- Column 2 -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>嘘だと言ってくれ。</p>
+              <p>魔石病だ。診療所の医師も匙を投げた。</p>
+              <p>なぜロキシーなんだ。どこで感染した？</p>
+              <p>……あの時、地下室で死んでいたネズミか？</p>
+            </div>
+          </div>
+
+          <div class="column-divider"></div>
+
+          <!-- Column 3 (Leftmost near center gutter) -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>手足の指先から、ゆっくりと硬質化が始まっている。</p>
+            </div>
+          </div>
+        `,
+        left: `
+          <!-- Column 1 (Rightmost near center gutter) -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>間に合わなかった。</p>
+              <p>ロキシーが、俺の腕の中で完全に石になった。</p>
+              <p>冷たく、硬く、声も出さず。</p>
+              <p>お腹の子供も、一緒に息を引き取った。</p>
+            </div>
+          </div>
+
+          <div class="column-divider"></div>
+
+          <!-- Column 2 -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>俺は何のために今まで生きてきたんだ？</p>
+              <p>家族を守ると誓ったはずなのに。</p>
+            </div>
+          </div>
+
+          <div class="column-divider"></div>
+
+          <!-- Column 3 -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>全部俺の油断だ。俺があのネズミを放っておいたからだ。</p>
+            </div>
+          </div>
+
+          <div class="column-divider"></div>
+
+          <!-- Column 4 (Leftmost of Left Page) -->
+          <div class="column-slot">
+            <div class="vertical-rl ink-text">
+              <p>涙も出ない。視界がずっと赤い。</p>
+              <p>シルフィが泣きながら俺を抱きしめてくるが、何も感じない。</p>
+            </div>
+          </div>
+        `
+      }
+    ];
+
+    let currentSpread = 0;
+    let isAnimating = false;
+
+    const leftContainer = document.getElementById('left-page-container');
+    const rightContainer = document.getElementById('right-page-container');
+    const leftContent = document.getElementById('left-page-content');
+    const rightContent = document.getElementById('right-page-content');
+    
+    const turningLeaf = document.getElementById('turning-leaf');
+    const leafFront = document.getElementById('leaf-front');
+    const leafBack = document.getElementById('leaf-back');
+    const leafFrontContent = document.getElementById('leaf-front-content');
+    const leafBackContent = document.getElementById('leaf-back-content');
+    const leafFrontShadow = document.getElementById('leaf-front-shadow');
+    const leafBackShadow = document.getElementById('leaf-back-shadow');
+    const underShadowLeft = document.getElementById('under-shadow-left');
+    const underShadowRight = document.getElementById('under-shadow-right');
+
+    function renderSpread(index) {
+      rightContent.innerHTML = diarySpreads[index].right;
+      leftContent.innerHTML = diarySpreads[index].left;
+    }
+
+    renderSpread(0);
+
+    function flipForward() {
+      if (isAnimating || currentSpread >= diarySpreads.length - 1) {
+        bounceResistance('left');
+        return;
+      }
+      isAnimating = true;
+
+      const nextSpreadIndex = currentSpread + 1;
+
+      turningLeaf.style.left = '0';
+      turningLeaf.style.transformOrigin = '100% 50%';
+      turningLeaf.style.transform = 'rotateY(0deg)';
+      turningLeaf.classList.add('flipping');
+
+      // Sync page box padding to turning leaf faces
+      leafFront.className = 'leaf-side aged-parchment page-box-left';
+      leafBack.className = 'leaf-side leaf-back aged-parchment page-box-right';
+
+      leafFrontContent.innerHTML = diarySpreads[currentSpread].left;
+      leafBackContent.innerHTML = diarySpreads[nextSpreadIndex].right;
+      leftContent.innerHTML = diarySpreads[nextSpreadIndex].left;
+
+      underShadowRight.style.opacity = '1';
+      leafFrontShadow.style.opacity = '0.45';
+
+      requestAnimationFrame(() => {
+        turningLeaf.style.transform = 'rotateY(180deg)';
+        leafFrontShadow.style.opacity = '0';
+        leafBackShadow.style.opacity = '0.35';
+
+        setTimeout(() => {
+          currentSpread = nextSpreadIndex;
+          renderSpread(currentSpread);
+
+          turningLeaf.classList.remove('flipping');
+          turningLeaf.style.transform = 'rotateY(0deg)';
+          underShadowRight.style.opacity = '0';
+          leafBackShadow.style.opacity = '0';
+          isAnimating = false;
+        }, 820);
+      });
+    }
+
+    function flipBackward() {
+      if (isAnimating || currentSpread <= 0) {
+        bounceResistance('right');
+        return;
+      }
+      isAnimating = true;
+
+      const prevSpreadIndex = currentSpread - 1;
+
+      turningLeaf.style.left = '50%';
+      turningLeaf.style.transformOrigin = '0% 50%';
+      turningLeaf.style.transform = 'rotateY(0deg)';
+      turningLeaf.classList.add('flipping');
+
+      // Sync page box padding to turning leaf faces
+      leafFront.className = 'leaf-side aged-parchment page-box-right';
+      leafBack.className = 'leaf-side leaf-back aged-parchment page-box-left';
+
+      leafFrontContent.innerHTML = diarySpreads[currentSpread].right;
+      leafBackContent.innerHTML = diarySpreads[prevSpreadIndex].left;
+      rightContent.innerHTML = diarySpreads[prevSpreadIndex].right;
+
+      underShadowLeft.style.opacity = '1';
+      leafFrontShadow.style.opacity = '0.45';
+
+      requestAnimationFrame(() => {
+        turningLeaf.style.transform = 'rotateY(-180deg)';
+        leafFrontShadow.style.opacity = '0';
+        leafBackShadow.style.opacity = '0.35';
+
+        setTimeout(() => {
+          currentSpread = prevSpreadIndex;
+          renderSpread(currentSpread);
+
+          turningLeaf.classList.remove('flipping');
+          turningLeaf.style.transform = 'rotateY(0deg)';
+          underShadowLeft.style.opacity = '0';
+          leafBackShadow.style.opacity = '0';
+          isAnimating = false;
+        }, 820);
+      });
+    }
+
+    function bounceResistance(side) {
+      const container = (side === 'left') ? leftContainer : rightContainer;
+      const angle = (side === 'left') ? 3.5 : -3.5;
+      container.style.transition = 'transform 0.22s ease-out';
+      container.style.transform = `rotateY(${angle}deg)`;
+      setTimeout(() => {
+        container.style.transform = 'rotateY(0deg)';
+        setTimeout(() => {
+          container.style.transition = '';
+        }, 220);
+      }, 220);
+    }
+
+    leftContainer.addEventListener('click', (e) => {
+      if (window.getSelection().toString().length > 0) return;
+      flipForward();
+    });
+
+    rightContainer.addEventListener('click', (e) => {
+      if (window.getSelection().toString().length > 0) return;
+      flipBackward();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'PageDown' || e.key === ' ') {
+        flipForward();
+      } else if (e.key === 'ArrowRight' || e.key === 'PageUp') {
+        flipBackward();
+      }
+    });
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    window.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].clientX;
+      touchStartY = e.changedTouches[0].clientY;
+    }, { passive: true });
+
+    window.addEventListener('touchend', (e) => {
+      const diffX = touchStartX - e.changedTouches[0].clientX;
+      const diffY = touchStartY - e.changedTouches[0].clientY;
+
+      if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+        if (diffX > 0) {
+          flipForward();
+        } else {
+          flipBackward();
+        }
+      }
+    }, { passive: true });
+  </script>
+</body>
+</html>

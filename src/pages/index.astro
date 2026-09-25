@@ -1,0 +1,13 @@
+---
+import Book from '../components/Book.astro';
+import Layout from '../layouts/Layout.astro';
+import { loadDiaryData } from '../lib/paginate';
+
+const rootDir = process.cwd();
+const diary = loadDiaryData(rootDir);
+
+---
+
+<Layout title={diary.title}>
+  <Book sections={diary.sections} title={diary.title} />
+</Layout>

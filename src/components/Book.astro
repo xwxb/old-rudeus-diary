@@ -1,0 +1,316 @@
+---
+import '../styles/book.css';
+interface Props {
+  sections: string[][];
+  title: string;
+}
+
+const { sections, title } = Astro.props;
+---
+
+<svg class="absolute w-0 h-0 pointer-events-none" aria-hidden="true" style="position:absolute;width:0;height:0;">
+  <defs>
+    <filter id="paper-torn-filter" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="4" result="noise"></feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.2" xChannelSelector="R" yChannelSelector="G"
+      ></feDisplacementMap>
+    </filter>
+  </defs>
+</svg>
+
+<main id="main-shell" class="main-shell">
+  <div class="book-shell">
+    <div class="book-viewport" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+      <div id="book-stage" class="book-stage" style="width:100%;height:100%;display:flex;position:relative;">
+        <div class="book-binding">
+          <div class="rivet"></div>
+          <div class="rivet"></div>
+          <div class="rivet"></div>
+          <div class="rivet"></div>
+        </div>
+
+        <div class="book-inner">
+          <div id="left-page-container" class="page-box page-box-left aged-parchment curve-left deckled-edge left-side-trigger">
+            <div id="left-page-content" class="page-content"></div>
+          </div>
+
+          <div id="right-page-container" class="page-box page-box-right aged-parchment curve-right deckled-edge right-side-trigger">
+            <div id="right-page-content" class="page-content"></div>
+          </div>
+        </div>
+
+        <div class="spine-crease"></div>
+
+        <div id="cover-leaf" class="cover-leaf" role="button" tabindex="0" aria-label="日記を開く">
+          <div class="cover-face cover-front">
+            <img src="/assets/page0.png" alt={title} width="724" height="1024" />
+          </div>
+
+        </div>
+
+
+
+      </div>
+    </div>
+  </div>
+</main>
+
+<script define:vars={{ sections }}>
+  const diarySections = sections;
+
+  let isBookOpen = false;
+  let currentSpread = 0;
+  let diarySpreads = [];
+  let resizeTimer;
+
+  const bookStage = document.getElementById('book-stage');
+  const coverLeaf = document.getElementById('cover-leaf');
+  const leftContainer = document.getElementById('left-page-container');
+  const rightContainer = document.getElementById('right-page-container');
+  const leftContent = document.getElementById('left-page-content');
+  const rightContent = document.getElementById('right-page-content');
+
+  function makeColumnSlot(paragraphs) {
+    const slot = document.createElement('div');
+    slot.className = 'column-slot';
+
+    const text = document.createElement('div');
+    text.className = 'vertical-rl ink-text';
+
+    paragraphs.forEach((paragraph) => {
+      const line = document.createElement('p');
+      line.textContent = paragraph;
+      text.appendChild(line);
+    });
+
+    slot.appendChild(text);
+    return slot;
+  }
+
+  function measureLayout() {
+    const pageRect = rightContainer.getBoundingClientRect();
+    const probePage = document.createElement('div');
+    probePage.className = 'page-box page-box-right';
+    Object.assign(probePage.style, {
+      position: 'fixed',
+      left: '-10000px',
+      top: '0',
+      width: `${pageRect.width}px`,
+      height: `${pageRect.height}px`,
+      visibility: 'hidden',
+      overflow: 'visible',
+      pointerEvents: 'none',
+    });
+
+    const probeContent = document.createElement('div');
+    probeContent.className = 'page-content';
+    probePage.appendChild(probeContent);
+    document.body.appendChild(probePage);
+
+    const divider = document.createElement('div');
+    divider.className = 'column-divider';
+    probeContent.appendChild(divider);
+    const dividerStyle = getComputedStyle(divider);
+    const separatorWidth =
+      divider.getBoundingClientRect().width +
+      Number.parseFloat(dividerStyle.marginLeft) +
+      Number.parseFloat(dividerStyle.marginRight);
+    divider.remove();
+
+    function widthOf(paragraphs) {
+      const slot = makeColumnSlot(paragraphs);
+      probeContent.appendChild(slot);
+      const width = slot.getBoundingClientRect().width;
+      slot.remove();
+      return width;
+    }
+
+    return {
+      availableWidth: Math.min(leftContent.clientWidth, rightContent.clientWidth),
+      separatorWidth,
+      widthOf,
+      cleanup: () => probePage.remove(),
+    };
+  }
+
+  function splitOversizedSection(section, availableWidth, widthOf) {
+    const fragments = [];
+    let current = [];
+
+    for (const paragraph of section) {
+      const candidate = [...current, paragraph];
+      if (current.length > 0 && widthOf(candidate) > availableWidth) {
+        fragments.push(current);
+        current = [paragraph];
+      } else {
+        current = candidate;
+      }
+    }
+
+    if (current.length > 0) fragments.push(current);
+    return fragments;
+  }
+
+  function buildSpreads() {
+    const layout = measureLayout();
+
+    try {
+      const pageWidth = Math.max(1, layout.availableWidth);
+      const sectionsToPlace = diarySections.flatMap((section) =>
+        splitOversizedSection(section, pageWidth, layout.widthOf),
+      );
+      const pages = [];
+      let currentPage = [];
+      let currentWidth = 0;
+
+      for (const section of sectionsToPlace) {
+        const sectionWidth = layout.widthOf(section);
+        const gap = currentPage.length > 0 ? layout.separatorWidth : 0;
+        const wouldOverflow = currentWidth + gap + sectionWidth > pageWidth;
+
+        if (currentPage.length > 0 && wouldOverflow) {
+          pages.push(currentPage);
+          currentPage = [];
+          currentWidth = 0;
+        }
+
+        if (currentPage.length > 0) currentWidth += layout.separatorWidth;
+        currentPage.push(section);
+        currentWidth += sectionWidth;
+      }
+
+      if (currentPage.length > 0) pages.push(currentPage);
+      if (pages.length === 0) pages.push([]);
+
+      diarySpreads = [];
+      for (let index = 0; index < pages.length; index += 2) {
+        diarySpreads.push({ right: pages[index], left: pages[index + 1] ?? [] });
+      }
+      currentSpread = Math.min(currentSpread, diarySpreads.length - 1);
+    } finally {
+      layout.cleanup();
+    }
+  }
+
+  function renderPage(container, sectionsOnPage) {
+    container.replaceChildren();
+
+    sectionsOnPage.forEach((section, index) => {
+      container.appendChild(makeColumnSlot(section));
+      if (index < sectionsOnPage.length - 1) {
+        const divider = document.createElement('div');
+        divider.className = 'column-divider';
+        container.appendChild(divider);
+      }
+    });
+  }
+
+  function renderSpread(index) {
+    const spread = diarySpreads[index];
+    if (!spread) return;
+    renderPage(rightContent, spread.right);
+    renderPage(leftContent, spread.left);
+  }
+
+  function repaginate() {
+    const previousSpread = currentSpread;
+    buildSpreads();
+    currentSpread = Math.min(previousSpread, diarySpreads.length - 1);
+    renderSpread(currentSpread);
+  }
+
+  function openBook() {
+    if (isBookOpen) return;
+
+    bookStage.classList.add('is-open');
+    coverLeaf.classList.add('is-open');
+    isBookOpen = true;
+    currentSpread = 0;
+    buildSpreads();
+    renderSpread(currentSpread);
+  }
+
+  coverLeaf.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openBook();
+  });
+
+  window.addEventListener('keydown', (event) => {
+    if (!isBookOpen && (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowLeft')) {
+      event.preventDefault();
+      openBook();
+    }
+  });
+
+  function flipForward() {
+    if (!isBookOpen || currentSpread >= diarySpreads.length - 1) return;
+    currentSpread += 1;
+    renderSpread(currentSpread);
+  }
+
+  function flipBackward() {
+    if (!isBookOpen || currentSpread <= 0) return;
+    currentSpread -= 1;
+    renderSpread(currentSpread);
+  }
+
+  leftContainer.addEventListener('click', (event) => {
+    if (!isBookOpen || window.getSelection().toString().length > 0) return;
+    flipForward();
+  });
+
+  rightContainer.addEventListener('click', (event) => {
+    if (!isBookOpen || window.getSelection().toString().length > 0) return;
+    flipBackward();
+  });
+
+  window.addEventListener('keydown', (event) => {
+    if (!isBookOpen || event.defaultPrevented) return;
+    if (event.key === 'ArrowLeft' || event.key === 'PageDown' || event.key === ' ') {
+      flipForward();
+    } else if (event.key === 'ArrowRight' || event.key === 'PageUp') {
+      flipBackward();
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    if (!isBookOpen) return;
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(repaginate, 120);
+  });
+
+  document.fonts?.ready.then(() => {
+    if (isBookOpen) repaginate();
+  });
+
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  window.addEventListener(
+    'touchstart',
+    (event) => {
+      touchStartX = event.changedTouches[0].clientX;
+      touchStartY = event.changedTouches[0].clientY;
+    },
+    { passive: true },
+  );
+
+  window.addEventListener(
+    'touchend',
+    (event) => {
+      const diffX = touchStartX - event.changedTouches[0].clientX;
+      const diffY = touchStartY - event.changedTouches[0].clientY;
+
+      if (!isBookOpen) {
+        if (Math.abs(diffX) > 40 || Math.abs(diffY) > 40) openBook();
+        return;
+      }
+
+      if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+        if (diffX > 0) flipForward();
+        else flipBackward();
+      }
+    },
+    { passive: true },
+  );
+</script>
