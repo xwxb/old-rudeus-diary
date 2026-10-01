@@ -19,57 +19,121 @@ const { sections, title } = Astro.props;
 </svg>
 
 <main id="main-shell" class="main-shell">
-  <div class="book-shell">
-    <div class="book-viewport" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-      <div id="book-stage" class="book-stage" style="width:100%;height:100%;display:flex;position:relative;">
-        <div class="book-binding">
-          <div class="rivet"></div>
-          <div class="rivet"></div>
-          <div class="rivet"></div>
-          <div class="rivet"></div>
+  <div id="book-viewport" class="book-viewport">
+    <div id="book-stage" class="book-stage is-closed">
+      <div class="book-binding">
+        <div class="rivet"></div>
+        <div class="rivet"></div>
+        <div class="rivet"></div>
+        <div class="rivet"></div>
+      </div>
+
+      <div class="book-inner">
+        <div id="left-page" class="page-box page-box-left aged-parchment curve-left deckled-edge left-side-trigger">
+          <div class="page-content"></div>
+          <div class="page-folio"></div>
+          <div class="page-shade"></div>
         </div>
 
-        <div class="book-inner">
-          <div id="left-page-container" class="page-box page-box-left aged-parchment curve-left deckled-edge left-side-trigger">
-            <div id="left-page-content" class="page-content"></div>
-          </div>
-
-          <div id="right-page-container" class="page-box page-box-right aged-parchment curve-right deckled-edge right-side-trigger">
-            <div id="right-page-content" class="page-content"></div>
-          </div>
+        <div id="right-page" class="page-box page-box-right aged-parchment curve-right deckled-edge right-side-trigger">
+          <div class="page-content"></div>
+          <div class="page-folio"></div>
+          <div class="page-shade"></div>
         </div>
+      </div>
 
-        <div class="spine-crease"></div>
+      <div class="spine-crease"></div>
 
-        <div id="cover-leaf" class="cover-leaf" role="button" tabindex="0" aria-label="日記を開く">
-          <div class="cover-face cover-front">
-            <img src="/assets/page0.png" alt={title} width="724" height="1024" />
-          </div>
-
+      <!-- 翻页时临时出现的纸片，正反面内容由脚本按翻页方向填充 -->
+      <div id="turn-leaf" class="leaf" aria-hidden="true">
+        <div class="leaf-face leaf-front page-box aged-parchment deckled-edge">
+          <div class="page-content"></div>
+          <div class="page-folio"></div>
+          <div class="page-shade"></div>
         </div>
+        <div class="leaf-face leaf-back page-box aged-parchment deckled-edge">
+          <div class="page-content"></div>
+          <div class="page-folio"></div>
+          <div class="page-shade"></div>
+        </div>
+      </div>
 
-
-
+      <div id="cover-leaf" class="leaf cover-leaf" role="button" tabindex="0" aria-label="日記を開く">
+        <div class="leaf-face leaf-front cover-front">
+          <img src="/assets/page0.png" alt={title} width="724" height="1024" fetchpriority="high" />
+        </div>
+        <!-- 双页模式下封面背面预先画好第 1 页，封面落到右侧时与右页无缝衔接 -->
+        <div class="leaf-face leaf-back page-box page-box-right aged-parchment curve-right deckled-edge">
+          <div class="page-content"></div>
+          <div class="page-folio"></div>
+          <div class="page-shade"></div>
+        </div>
       </div>
     </div>
   </div>
 </main>
 
 <script define:vars={{ sections }}>
-  const diarySections = sections;
+  /*
+   * 日记本交互
+   * - 分页：按当前纸张尺寸实测每段日记竖排后的宽度，把段落装箱成「页」(pages)。
+   *   横屏为双页视图（右页先读、左页后读），竖屏为单页视图；两种视图共用同一份 pages，
+   *   currentPage 指向视图中的第一页（双页时总是偶数）。
+   * - 封面：双页时合上的书整体右移半页让封面居中，翻开时封面绕书脊转到右侧、书移回中间，
+   *   封面背面预先画好第 1 页，落下后与右页无缝衔接；单页时封面按原图比例居中，转开后淡出、书页淡入。
+   *   翻开后不再回到封面。
+   * - 翻页：用临时纸片 turn-leaf 做 3D 旋转，正面画「被翻走的页」、背面画「翻过来的页」；
+   *   底下的页在动画开始时就换成目标内容，结束后收起纸片。动画中再次翻页会加速当前动画并累计排队，
+   *   方便连续快速翻；到首尾即停。
+   * - 窗口尺寸变化时以当前页首段为锚点重新分页，尽量停在原来读到的位置。
+   */
+  const SINGLE_PAGE_QUERY = '(max-aspect-ratio: 1/1)'; // 与 book.css 中的单页媒体查询保持一致
+  const COVER_PEEK_DEG = 10; // 与 book.css 中封面悬停微开的角度保持一致
+  const LEAF_SHADE = 0.45;
+  const FAST_TURN_RATE = 2.4; // 连续翻页时的动画加速倍率
+  const MAX_PENDING_TURNS = 6;
 
-  let isBookOpen = false;
-  let currentSpread = 0;
-  let diarySpreads = [];
-  let resizeTimer;
-
+  const bookViewport = document.getElementById('book-viewport');
   const bookStage = document.getElementById('book-stage');
   const coverLeaf = document.getElementById('cover-leaf');
-  const leftContainer = document.getElementById('left-page-container');
-  const rightContainer = document.getElementById('right-page-container');
-  const leftContent = document.getElementById('left-page-content');
-  const rightContent = document.getElementById('right-page-content');
+  const coverFront = coverLeaf.querySelector('.leaf-front');
+  const coverBack = coverLeaf.querySelector('.leaf-back');
+  const turnLeaf = document.getElementById('turn-leaf');
+  const turnFront = turnLeaf.querySelector('.leaf-front');
+  const turnBack = turnLeaf.querySelector('.leaf-back');
+  const leftPage = document.getElementById('left-page');
+  const rightPage = document.getElementById('right-page');
 
+  const singleMode = window.matchMedia(SINGLE_PAGE_QUERY);
+  const canHover = window.matchMedia('(hover: hover)');
+
+  // 段落带上全局序号，重新分页时用来找回阅读位置
+  let paragraphSeq = 0;
+  const diarySections = sections.map((section) => section.map((text) => ({ id: paragraphSeq++, text })));
+
+  let pages = [];
+  let currentPage = 0;
+  let isBookOpen = false;
+  let busy = null; // 'cover' | 'turn' | null
+  let pendingStep = 0;
+  let needsRepaginate = false;
+  let runningAnimations = [];
+  let resizeTimer;
+
+
+  //=== 分页与渲染 ===
+
+  /** 每个视图包含的页数：双页 2，单页 1 */
+  function pagesPerView() {
+    return singleMode.matches ? 1 : 2;
+  }
+
+  /** 把任意页码对齐到所在视图的第一页 */
+  function alignToView(index) {
+    return Math.max(0, index - (index % pagesPerView()));
+  }
+
+  /** 构造一个日记段落的竖排栏位 */
   function makeColumnSlot(paragraphs) {
     const slot = document.createElement('div');
     slot.className = 'column-slot';
@@ -79,7 +143,7 @@ const { sections, title } = Astro.props;
 
     paragraphs.forEach((paragraph) => {
       const line = document.createElement('p');
-      line.textContent = paragraph;
+      line.textContent = paragraph.text;
       text.appendChild(line);
     });
 
@@ -87,16 +151,16 @@ const { sections, title } = Astro.props;
     return slot;
   }
 
+  /** 在与真实页面同尺寸的隐藏探针里测量栏位宽度，供分页装箱使用 */
   function measureLayout() {
-    const pageRect = rightContainer.getBoundingClientRect();
     const probePage = document.createElement('div');
-    probePage.className = 'page-box page-box-right';
+    probePage.className = 'page-box page-box-left';
     Object.assign(probePage.style, {
-      position: 'fixed',
-      left: '-10000px',
+      position: 'absolute',
+      left: '0',
       top: '0',
-      width: `${pageRect.width}px`,
-      height: `${pageRect.height}px`,
+      width: `${leftPage.offsetWidth}px`,
+      height: `${leftPage.offsetHeight}px`,
       visibility: 'hidden',
       overflow: 'visible',
       pointerEvents: 'none',
@@ -105,7 +169,8 @@ const { sections, title } = Astro.props;
     const probeContent = document.createElement('div');
     probeContent.className = 'page-content';
     probePage.appendChild(probeContent);
-    document.body.appendChild(probePage);
+    // 必须挂在 book-viewport 内，页面尺寸相关的 cqh 单位才会按书本尺寸计算
+    bookViewport.appendChild(probePage);
 
     const divider = document.createElement('div');
     divider.className = 'column-divider';
@@ -126,13 +191,14 @@ const { sections, title } = Astro.props;
     }
 
     return {
-      availableWidth: Math.min(leftContent.clientWidth, rightContent.clientWidth),
+      availableWidth: probeContent.clientWidth,
       separatorWidth,
       widthOf,
       cleanup: () => probePage.remove(),
     };
   }
 
+  /** 单段超过一页宽时按段落行拆开 */
   function splitOversizedSection(section, availableWidth, widthOf) {
     const fragments = [];
     let current = [];
@@ -151,7 +217,8 @@ const { sections, title } = Astro.props;
     return fragments;
   }
 
-  function buildSpreads() {
+  /** 按实测宽度把段落依次装进页面，返回 pages（每页是若干段） */
+  function buildPages() {
     const layout = measureLayout();
 
     try {
@@ -159,128 +226,341 @@ const { sections, title } = Astro.props;
       const sectionsToPlace = diarySections.flatMap((section) =>
         splitOversizedSection(section, pageWidth, layout.widthOf),
       );
-      const pages = [];
-      let currentPage = [];
+      const result = [];
+      let currentSections = [];
       let currentWidth = 0;
 
       for (const section of sectionsToPlace) {
         const sectionWidth = layout.widthOf(section);
-        const gap = currentPage.length > 0 ? layout.separatorWidth : 0;
+        const gap = currentSections.length > 0 ? layout.separatorWidth : 0;
         const wouldOverflow = currentWidth + gap + sectionWidth > pageWidth;
 
-        if (currentPage.length > 0 && wouldOverflow) {
-          pages.push(currentPage);
-          currentPage = [];
+        if (currentSections.length > 0 && wouldOverflow) {
+          result.push(currentSections);
+          currentSections = [];
           currentWidth = 0;
         }
 
-        if (currentPage.length > 0) currentWidth += layout.separatorWidth;
-        currentPage.push(section);
+        if (currentSections.length > 0) currentWidth += layout.separatorWidth;
+        currentSections.push(section);
         currentWidth += sectionWidth;
       }
 
-      if (currentPage.length > 0) pages.push(currentPage);
-      if (pages.length === 0) pages.push([]);
-
-      diarySpreads = [];
-      for (let index = 0; index < pages.length; index += 2) {
-        diarySpreads.push({ right: pages[index], left: pages[index + 1] ?? [] });
-      }
-      currentSpread = Math.min(currentSpread, diarySpreads.length - 1);
+      if (currentSections.length > 0) result.push(currentSections);
+      if (result.length === 0) result.push([]);
+      return result;
     } finally {
       layout.cleanup();
     }
   }
 
-  function renderPage(container, sectionsOnPage) {
-    container.replaceChildren();
+  /** 把第 index 页画进一个页面容器（真实页面或纸片的某一面），越界则画成空白页 */
+  function fillPage(box, index) {
+    const content = box.querySelector('.page-content');
+    const folio = box.querySelector('.page-folio');
+    const sectionsOnPage = index >= 0 ? pages[index] ?? [] : [];
 
-    sectionsOnPage.forEach((section, index) => {
-      container.appendChild(makeColumnSlot(section));
-      if (index < sectionsOnPage.length - 1) {
+    content.replaceChildren();
+    sectionsOnPage.forEach((section, sectionIndex) => {
+      content.appendChild(makeColumnSlot(section));
+      if (sectionIndex < sectionsOnPage.length - 1) {
         const divider = document.createElement('div');
         divider.className = 'column-divider';
-        container.appendChild(divider);
+        content.appendChild(divider);
       }
     });
+    folio.textContent = index >= 0 && index < pages.length ? String(index + 1) : '';
   }
 
-  function renderSpread(index) {
-    const spread = diarySpreads[index];
-    if (!spread) return;
-    renderPage(rightContent, spread.right);
-    renderPage(leftContent, spread.left);
+  /** 按 currentPage 渲染当前视图，并同步封面背面（双页时即第 1 页） */
+  function renderView() {
+    if (singleMode.matches) {
+      fillPage(leftPage, currentPage);
+      fillPage(coverBack, -1);
+    } else {
+      fillPage(rightPage, currentPage);
+      fillPage(leftPage, currentPage + 1);
+      fillPage(coverBack, 0);
+    }
   }
 
+  /** 重新分页；动画进行中则推迟到动画结束 */
   function repaginate() {
-    const previousSpread = currentSpread;
-    buildSpreads();
-    currentSpread = Math.min(previousSpread, diarySpreads.length - 1);
-    renderSpread(currentSpread);
+    if (busy) {
+      needsRepaginate = true;
+      return;
+    }
+    const anchorId = pages[currentPage]?.[0]?.[0]?.id ?? 0;
+    pages = buildPages();
+
+    let anchorPage = 0;
+    pages.forEach((page, index) => {
+      if (page[0] && page[0][0].id <= anchorId) anchorPage = index;
+    });
+    currentPage = isBookOpen ? alignToView(anchorPage) : 0;
+    renderView();
   }
 
-  function openBook() {
-    if (isBookOpen) return;
 
-    bookStage.classList.add('is-open');
-    coverLeaf.classList.add('is-open');
+  //=== 动画工具 ===
+
+  /** 读取 book.css 中定义的时长变量（毫秒），减弱动态效果时为 0 */
+  function readDuration(name) {
+    return Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
+  }
+
+  /** 播放一段翻页类动画并登记，统一在动作结束时清理 */
+  function animate(element, keyframes, duration) {
+    const easing = getComputedStyle(document.documentElement).getPropertyValue('--turn-ease').trim() || 'ease-in-out';
+    const animation = element.animate(keyframes, { duration, easing, fill: 'forwards' });
+    runningAnimations.push(animation);
+    return animation.finished;
+  }
+
+  function clearAnimations() {
+    runningAnimations.forEach((animation) => animation.cancel());
+    runningAnimations = [];
+  }
+
+  /** 纸片绕书脊旋转的关键帧；translateZ 让纸片略高于书页，避免同平面闪烁 */
+  function leafFrames(fromDeg, toDeg) {
+    return [
+      { transform: `translateZ(0.5px) rotateY(${fromDeg}deg)` },
+      { transform: `translateZ(0.5px) rotateY(${toDeg}deg)` },
+    ];
+  }
+
+  const shadeOf = (box) => box.querySelector('.page-shade');
+  // 纸片刚掀起时底下那页靠书脊处有阴影，随后散去
+  const SHADE_REVEAL = [{ opacity: 0.55 }, { opacity: 0, offset: 0.5 }, { opacity: 0 }];
+  // 纸片落下前在目标页上投下逐渐加深的阴影
+  const SHADE_COVER = [{ opacity: 0 }, { opacity: 0.6, offset: 0.85 }, { opacity: 0 }];
+  // 纸片转到接近垂直时两面都偏暗
+  const FACE_SHADE_FRONT = [{ opacity: 0 }, { opacity: LEAF_SHADE, offset: 0.5 }, { opacity: LEAF_SHADE }];
+  const FACE_SHADE_BACK = [{ opacity: LEAF_SHADE }, { opacity: LEAF_SHADE, offset: 0.5 }, { opacity: 0 }];
+  // 单页视图下纸片转出书外，后半程淡出（淡入为反向）
+  const FACE_FADE_OUT = [{ opacity: 1 }, { opacity: 1, offset: 0.55 }, { opacity: 0 }];
+  const FACE_FADE_IN = [{ opacity: 0 }, { opacity: 1, offset: 0.45 }, { opacity: 1 }];
+
+  /** 切换纸片某一面的左右页样式（页边距、书脊阴影、页码位置） */
+  function setFaceSide(face, side) {
+    face.classList.toggle('page-box-left', side === 'left');
+    face.classList.toggle('curve-left', side === 'left');
+    face.classList.toggle('page-box-right', side === 'right');
+    face.classList.toggle('curve-right', side === 'right');
+  }
+
+  /** 动作结束后的收尾：执行推迟的重新分页与排队的翻页 */
+  function settle() {
+    busy = null;
+    if (needsRepaginate) {
+      needsRepaginate = false;
+      repaginate();
+    }
+    if (pendingStep) {
+      const step = Math.sign(pendingStep);
+      pendingStep -= step;
+      turnPage(step, true);
+    }
+  }
+
+
+  //=== 封面开合 ===
+
+  /** 翻开封面：封面绕书脊转开，书从「封面居中」移回「书脊居中」 */
+  async function openBook() {
+    if (isBookOpen || busy) return;
+    busy = 'cover';
     isBookOpen = true;
-    currentSpread = 0;
-    buildSpreads();
-    renderSpread(currentSpread);
+    currentPage = 0;
+    renderView();
+
+    const duration = readDuration('--cover-ms');
+    const startDeg = canHover.matches && coverLeaf.matches(':hover') ? COVER_PEEK_DEG : 0;
+
+    bookStage.classList.remove('is-closed');
+    bookStage.classList.add('is-cover-moving');
+    coverLeaf.setAttribute('aria-hidden', 'true');
+
+    const done = [
+      animate(coverLeaf, leafFrames(startDeg, 180), duration),
+      animate(shadeOf(leftPage), SHADE_REVEAL, duration),
+    ];
+    if (singleMode.matches) {
+      // 单页：封面比书页小，转开后淡出，书页由 CSS 过渡淡入
+      done.push(animate(coverFront, FACE_FADE_OUT, duration), animate(coverBack, FACE_FADE_OUT, duration));
+    } else {
+      // 双页：封面背面带着第 1 页落在右页上
+      done.push(animate(shadeOf(coverBack), FACE_SHADE_BACK, duration));
+    }
+
+    try {
+      await Promise.all(done);
+    } finally {
+      bookStage.classList.remove('is-cover-moving');
+      clearAnimations();
+      settle();
+    }
   }
+
+  //=== 翻页 ===
+
+  /** 翻页：step 为 1 往后读，-1 往回翻 */
+  async function turnPage(step) {
+    if (!isBookOpen) return;
+    if (busy) {
+      // 翻页中再次触发：加速当前动画并累计排队，反方向则只保留新方向的这一次
+      if (busy === 'turn') {
+        pendingStep = Math.sign(pendingStep) === -step ? step : pendingStep + step;
+        pendingStep = Math.max(-MAX_PENDING_TURNS, Math.min(MAX_PENDING_TURNS, pendingStep));
+        runningAnimations.forEach((animation) => animation.updatePlaybackRate(FAST_TURN_RATE));
+      }
+      return;
+    }
+    if (step < 0 && currentPage === 0) {
+      pendingStep = 0;
+      return;
+    }
+    const target = currentPage + step * pagesPerView();
+    if (step > 0 && target >= pages.length) {
+      pendingStep = 0;
+      bounceLastPage();
+      return;
+    }
+
+    busy = 'turn';
+    const duration = readDuration('--turn-ms');
+    const done = [];
+
+    if (singleMode.matches) {
+      // 单页：纸片绕右边缘转出（往后读）或从右侧转回（往回翻），背面是空白纸背
+      setFaceSide(turnFront, 'left');
+      setFaceSide(turnBack, 'right');
+      fillPage(turnBack, -1);
+      turnLeaf.classList.remove('leaf--right');
+      if (step > 0) {
+        fillPage(turnFront, currentPage);
+        fillPage(leftPage, target);
+        done.push(
+          animate(turnLeaf, leafFrames(0, 180), duration),
+          animate(turnFront, FACE_FADE_OUT, duration),
+          animate(turnBack, FACE_FADE_OUT, duration),
+          animate(shadeOf(leftPage), SHADE_REVEAL, duration),
+        );
+      } else {
+        fillPage(turnFront, target);
+        done.push(
+          animate(turnLeaf, leafFrames(180, 0), duration),
+          animate(turnFront, FACE_FADE_IN, duration),
+          animate(turnBack, FACE_FADE_IN, duration),
+          animate(shadeOf(leftPage), SHADE_COVER, duration),
+        );
+      }
+    } else if (step > 0) {
+      // 双页往后读：左页翻到右侧，背面是下一视图的右页
+      setFaceSide(turnFront, 'left');
+      setFaceSide(turnBack, 'right');
+      fillPage(turnFront, currentPage + 1);
+      fillPage(turnBack, target);
+      fillPage(leftPage, target + 1);
+      turnLeaf.classList.remove('leaf--right');
+      done.push(
+        animate(turnLeaf, leafFrames(0, 180), duration),
+        animate(shadeOf(leftPage), SHADE_REVEAL, duration),
+        animate(shadeOf(rightPage), SHADE_COVER, duration),
+      );
+    } else {
+      // 双页往回翻：右页翻回左侧，背面是上一视图的左页
+      setFaceSide(turnFront, 'right');
+      setFaceSide(turnBack, 'left');
+      fillPage(turnFront, currentPage);
+      fillPage(turnBack, target + 1);
+      fillPage(rightPage, target);
+      turnLeaf.classList.add('leaf--right');
+      done.push(
+        animate(turnLeaf, leafFrames(0, -180), duration),
+        animate(shadeOf(rightPage), SHADE_REVEAL, duration),
+        animate(shadeOf(leftPage), SHADE_COVER, duration),
+      );
+    }
+    done.push(
+      animate(shadeOf(turnFront), FACE_SHADE_FRONT, duration),
+      animate(shadeOf(turnBack), FACE_SHADE_BACK, duration),
+    );
+    turnLeaf.classList.add('is-turning');
+    if (pendingStep) runningAnimations.forEach((animation) => animation.updatePlaybackRate(FAST_TURN_RATE));
+
+    try {
+      await Promise.all(done);
+    } finally {
+      currentPage = target;
+      renderView();
+      turnLeaf.classList.remove('is-turning');
+      clearAnimations();
+      settle();
+    }
+  }
+
+  /** 已是最后一页时，左页轻轻掀起又落下，提示翻到底了 */
+  function bounceLastPage() {
+    const duration = Math.min(420, readDuration('--turn-ms'));
+    if (duration <= 0) return;
+    const lifted = 'perspective(1600px) rotateY(5deg)';
+    const flat = 'perspective(1600px) rotateY(0deg)';
+    leftPage.animate(
+      [
+        { transform: flat, transformOrigin: '100% 50%' },
+        { transform: lifted, transformOrigin: '100% 50%', offset: 0.4 },
+        { transform: flat, transformOrigin: '100% 50%' },
+      ],
+      { duration, easing: 'ease-out' },
+    );
+  }
+
+  /** 直接跳到某页（Home / End），不播放翻页动画 */
+  function jumpTo(index) {
+    if (!isBookOpen || busy) return;
+    currentPage = alignToView(Math.min(Math.max(index, 0), pages.length - 1));
+    renderView();
+  }
+
+
+  //=== 输入：点击 / 键盘 / 滑动 / 尺寸变化 ===
 
   coverLeaf.addEventListener('click', (event) => {
     event.stopPropagation();
     openBook();
   });
 
+  // 点书的左半边往后读，右半边往回翻（竖排书从右往左读）
+  bookStage.addEventListener('click', (event) => {
+    if (!isBookOpen || window.getSelection().toString().length > 0) return;
+    const rect = bookStage.getBoundingClientRect();
+    turnPage(event.clientX < rect.left + rect.width / 2 ? 1 : -1);
+  });
+
   window.addEventListener('keydown', (event) => {
-    if (!isBookOpen && (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowLeft')) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const { key } = event;
+
+    if (!isBookOpen) {
+      if (key === 'Enter' || key === ' ' || key === 'ArrowLeft') {
+        event.preventDefault();
+        openBook();
+      }
+      return;
+    }
+
+    if (key === 'ArrowLeft' || key === 'PageDown' || key === ' ') {
       event.preventDefault();
-      openBook();
+      turnPage(1);
+    } else if (key === 'ArrowRight' || key === 'PageUp') {
+      event.preventDefault();
+      turnPage(-1);
+    } else if (key === 'Home' || key === 'End') {
+      event.preventDefault();
+      jumpTo(key === 'Home' ? 0 : pages.length - 1);
     }
-  });
-
-  function flipForward() {
-    if (!isBookOpen || currentSpread >= diarySpreads.length - 1) return;
-    currentSpread += 1;
-    renderSpread(currentSpread);
-  }
-
-  function flipBackward() {
-    if (!isBookOpen || currentSpread <= 0) return;
-    currentSpread -= 1;
-    renderSpread(currentSpread);
-  }
-
-  leftContainer.addEventListener('click', (event) => {
-    if (!isBookOpen || window.getSelection().toString().length > 0) return;
-    flipForward();
-  });
-
-  rightContainer.addEventListener('click', (event) => {
-    if (!isBookOpen || window.getSelection().toString().length > 0) return;
-    flipBackward();
-  });
-
-  window.addEventListener('keydown', (event) => {
-    if (!isBookOpen || event.defaultPrevented) return;
-    if (event.key === 'ArrowLeft' || event.key === 'PageDown' || event.key === ' ') {
-      flipForward();
-    } else if (event.key === 'ArrowRight' || event.key === 'PageUp') {
-      flipBackward();
-    }
-  });
-
-  window.addEventListener('resize', () => {
-    if (!isBookOpen) return;
-    window.clearTimeout(resizeTimer);
-    resizeTimer = window.setTimeout(repaginate, 120);
-  });
-
-  document.fonts?.ready.then(() => {
-    if (isBookOpen) repaginate();
   });
 
   let touchStartX = 0;
@@ -295,11 +575,12 @@ const { sections, title } = Astro.props;
     { passive: true },
   );
 
+  // 向右滑往后读、向左滑往回翻，与纸页的翻动方向一致
   window.addEventListener(
     'touchend',
     (event) => {
-      const diffX = touchStartX - event.changedTouches[0].clientX;
-      const diffY = touchStartY - event.changedTouches[0].clientY;
+      const diffX = event.changedTouches[0].clientX - touchStartX;
+      const diffY = event.changedTouches[0].clientY - touchStartY;
 
       if (!isBookOpen) {
         if (Math.abs(diffX) > 40 || Math.abs(diffY) > 40) openBook();
@@ -307,10 +588,17 @@ const { sections, title } = Astro.props;
       }
 
       if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
-        if (diffX > 0) flipForward();
-        else flipBackward();
+        turnPage(diffX > 0 ? 1 : -1);
       }
     },
     { passive: true },
   );
+
+  window.addEventListener('resize', () => {
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(repaginate, 120);
+  });
+
+  document.fonts?.ready.then(repaginate);
+  repaginate();
 </script>

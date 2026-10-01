@@ -1,5 +1,15 @@
+/*
+ * 日记本样式
+ * - 横屏双页：书页按封面图比例 (724:1024) 定尺寸，放在深色桌面中央；封面与书页同尺寸，
+ *   翻开时封面背面带着第 1 页落到右页上。
+ * - 竖屏单页：书页铺满屏幕；封面按原图比例居中，翻开时掀起淡出、书页淡入。
+ * - book-viewport 是尺寸容器，书内随纸张缩放的尺寸用 cqh（1cqh = 页高的 1%），
+ *   水平方向的页边距再用 cqw 兜底，避免手机上窄页被边距挤占。
+ * - 书的状态由 book-stage 上的类控制：is-closed（合上，封面居中）、is-cover-moving（封面开合动画中）、
+ *   都没有即为翻开状态。翻页与封面的旋转动画由 Book.astro 中的脚本驱动。
+ */
 :root {
-  --desk-dark: #e7dbbf;
+  --desk-dark: #0a0806;
   --paper-base: #e7dbbf;
   --paper-tint: #f2e7ce;
   --stain-amber: rgba(125, 82, 38, 0.13);
@@ -7,8 +17,20 @@
   --foxing-spot: rgba(145, 90, 42, 0.16);
   --ink-rich: #211913;
   --ink-bleed: rgba(33, 25, 19, 0.3);
-  --spine-gutter-right: clamp(36px, 5.4vw, 68px);
-  --spine-gutter-left: clamp(26px, 3.8vw, 52px);
+  --page-pad-top: 3.8cqh;
+  --page-pad-bottom: 2.9cqh;
+  --page-pad-outer: min(6.6cqh, 9cqw);
+  --page-pad-spine: min(5.2cqh, 7cqw);
+  --cover-ms: 1100ms;
+  --turn-ms: 780ms;
+  --turn-ease: cubic-bezier(0.42, 0.08, 0.22, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --cover-ms: 0ms;
+    --turn-ms: 0ms;
+  }
 }
 
 * {
@@ -23,10 +45,14 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: var(--paper-base);
+  background-color: var(--desk-dark);
+  background-image:
+    radial-gradient(ellipse at 50% 50%, rgba(60, 38, 22, 0.45) 0%, rgba(6, 5, 4, 0.98) 80%),
+    repeating-linear-gradient(90deg, rgba(20, 14, 10, 0.3) 0px, rgba(12, 8, 6, 0.3) 180px, rgba(28, 18, 12, 0.25) 360px);
   font-family: 'Klee One', 'Shippori Mincho', 'Noto Serif JP', serif;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: manipulation;
 }
 
 .aged-parchment {
@@ -93,26 +119,64 @@ body {
   box-shadow: 0 0 12px 3px rgba(18, 9, 3, 0.28);
   pointer-events: none;
   z-index: 30;
-  opacity: 0;
-  transition: opacity 0.45s ease;
+  transition: opacity var(--cover-ms) ease;
 }
 
-.book-stage.is-open .spine-crease {
-  opacity: 1;
+.book-stage.is-closed .spine-crease {
+  opacity: 0;
+}
+
+
+/* === 桌面与书本尺寸 === */
+
+.main-shell {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, 3vmin, env(safe-area-inset-top)) max(16px, 3vmin, env(safe-area-inset-right))
+    max(16px, 3vmin, env(safe-area-inset-bottom)) max(16px, 3vmin, env(safe-area-inset-left));
+  container-type: size;
 }
 
 .book-viewport {
-  perspective: 3200px;
-  perspective-origin: 50% 50%;
+  position: relative;
+  width: min(100cqw, 100cqh * 1448 / 1024);
+  height: min(100cqh, 100cqw * 1024 / 1448);
+  container-type: size;
 }
 
 .book-stage {
-  position: relative;
+  position: absolute;
+  inset: 0;
+  display: flex;
   transform-style: preserve-3d;
-  box-shadow:
-    0 35px 70px rgba(0, 0, 0, 0.9),
-    0 14px 28px rgba(0, 0, 0, 0.65);
+  perspective: 320cqh;
+  transition: transform var(--cover-ms) var(--turn-ease);
 }
+
+/* 合上时书整体右移半页，让左半边（封面所在处）居中 */
+.book-stage.is-closed {
+  transform: translateX(25%);
+}
+
+.book-inner {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  border-radius: 2px;
+}
+
+/* 合上及封面翻开过程中，右页的位置还没有纸 */
+.book-stage.is-closed .book-inner > .page-box-right,
+.book-stage.is-cover-moving .book-inner > .page-box-right {
+  visibility: hidden;
+}
+
+
+/* === 书页 === */
 
 .page-box {
   width: 50%;
@@ -126,17 +190,11 @@ body {
 }
 
 .page-box-left {
-  padding-top: clamp(22px, 3.6vh, 42px);
-  padding-bottom: clamp(16px, 2.8vh, 32px);
-  padding-left: clamp(26px, 4vw, 56px);
-  padding-right: clamp(20px, 3.2vw, 44px);
+  padding: var(--page-pad-top) var(--page-pad-spine) var(--page-pad-bottom) var(--page-pad-outer);
 }
 
 .page-box-right {
-  padding-top: clamp(22px, 3.6vh, 42px);
-  padding-bottom: clamp(16px, 2.8vh, 32px);
-  padding-left: clamp(20px, 3.2vw, 44px);
-  padding-right: clamp(26px, 4vw, 56px);
+  padding: var(--page-pad-top) var(--page-pad-outer) var(--page-pad-bottom) var(--page-pad-spine);
 }
 
 .page-content {
@@ -150,14 +208,49 @@ body {
   align-items: flex-start;
 }
 
+.page-folio {
+  position: absolute;
+  bottom: var(--page-pad-bottom);
+  z-index: 10;
+  font-family: 'Shippori Mincho', 'Noto Serif JP', serif;
+  font-size: max(10px, 1.2cqh);
+  letter-spacing: 0.1em;
+  color: rgba(33, 25, 19, 0.42);
+  pointer-events: none;
+}
+
+.page-box-left .page-folio {
+  left: var(--page-pad-outer);
+}
+
+.page-box-right .page-folio {
+  right: var(--page-pad-outer);
+}
+
+/* 翻页时投在纸面上的阴影，靠书脊一侧更深；透明度由脚本动画控制 */
+.page-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.page-box-left .page-shade {
+  background: linear-gradient(to right, rgba(20, 10, 4, 0.08) 20%, rgba(20, 10, 4, 0.6));
+}
+
+.page-box-right .page-shade {
+  background: linear-gradient(to left, rgba(20, 10, 4, 0.08) 20%, rgba(20, 10, 4, 0.6));
+}
 
 .column-divider {
   width: 2px;
   height: 96%;
   align-self: flex-start;
   margin-top: 0.5%;
-  margin-left: clamp(8px, 1vw, 16px);
-  margin-right: clamp(8px, 1vw, 16px);
+  margin-left: 1.6cqh;
+  margin-right: 1.6cqh;
   flex-shrink: 0;
   background: linear-gradient(
     to bottom,
@@ -182,7 +275,7 @@ body {
   align-items: flex-start;
   position: relative;
   z-index: 10;
-  padding: 0 clamp(3px, 0.4vw, 8px);
+  padding: 0 0.8cqh;
 }
 
 .column-slot--spine {
@@ -203,14 +296,14 @@ body {
   -ms-writing-mode: tb-rl;
   letter-spacing: 0.08em;
   line-height: 1.56;
-  font-size: clamp(11.5px, 1.12vw, 14.8px);
+  font-size: max(12px, 1.75cqh);
   width: max-content;
   height: 100%;
 }
 
 .vertical-rl p {
   margin: 0;
-  margin-left: clamp(2px, 0.28vw, 5px);
+  margin-left: 0.5cqh;
   text-align: justify;
   text-justify: inter-ideograph;
 }
@@ -230,18 +323,29 @@ body {
   cursor: e-resize;
 }
 
+
+/* === 书壳（翻开后露出的木质底板） === */
+
 .book-binding {
   position: absolute;
   inset: -7px;
   border-radius: 5px;
   background: #1a110a;
   pointer-events: none;
-  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.85);
+  box-shadow:
+    0 35px 70px rgba(0, 0, 0, 0.9),
+    0 14px 28px rgba(0, 0, 0, 0.65);
   z-index: -10;
   border: 1px solid rgba(43, 28, 17, 0.8);
   background-image:
     radial-gradient(circle at 50% 50%, rgba(60, 35, 18, 0.3) 0%, rgba(10, 6, 4, 0.9) 100%),
     repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.2) 0px, transparent 1px, transparent 3px);
+  transition: opacity var(--cover-ms) ease;
+}
+
+/* 合上时封面图本身就是书壳 */
+.book-stage.is-closed .book-binding {
+  opacity: 0;
 }
 
 @media (min-width: 640px) {
@@ -277,77 +381,143 @@ body {
   bottom: clamp(20px, 5vh, 28px);
 }
 
-.cover-leaf {
+
+/* === 翻动的纸片与封面 === */
+
+/* 默认占左半边、绕书脊（右边缘）旋转；leaf--right 占右半边、绕左边缘旋转 */
+.leaf {
   position: absolute;
   top: 0;
   left: 0;
-  width: 100%;
+  width: 50%;
   height: 100%;
-  margin-left: 0;
-  z-index: 60;
-  cursor: pointer;
+  z-index: 50;
+  transform: translateZ(0.5px);
+  transform-origin: 100% 50%;
+  transform-style: preserve-3d;
+  visibility: hidden;
+  pointer-events: none;
 }
 
-
-.cover-leaf.is-open {
-  display: none;
+.leaf.leaf--right {
+  left: 50%;
+  transform-origin: 0 50%;
 }
 
-.cover-face {
+.leaf.is-turning {
+  visibility: visible;
+}
+
+.leaf .leaf-face {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  overflow: hidden;
-  border-radius: 0;
 }
 
-.cover-front {
-  background: transparent;
+.leaf .leaf-back {
+  transform: rotateY(180deg);
+}
+
+/* 封面比纸页略大一圈盖住毛边；书脊一侧不外扩，保证绕书脊旋转 */
+.leaf.cover-leaf {
+  --cover-overhang: 0.8cqh;
+  top: calc(var(--cover-overhang) * -1);
+  left: calc(var(--cover-overhang) * -1);
+  width: calc(50% + var(--cover-overhang));
+  height: calc(100% + var(--cover-overhang) * 2);
+  z-index: 60;
+  cursor: pointer;
+  pointer-events: auto;
+  outline: none;
+  transition: transform 0.35s ease;
+}
+
+/* 背面收回外扩部分，翻到右侧后与右页完全重合 */
+.cover-leaf .leaf-back {
+  inset: var(--cover-overhang) 0 var(--cover-overhang) var(--cover-overhang);
+  width: auto;
+  height: auto;
+}
+
+.book-stage.is-closed .cover-leaf,
+.book-stage.is-cover-moving .cover-leaf {
+  visibility: visible;
+}
+
+/* 悬停时封面微微掀起，提示可以翻开；角度与脚本中的 COVER_PEEK_DEG 一致 */
+@media (hover: hover) {
+  .book-stage.is-closed:not(.is-cover-moving) .cover-leaf:hover,
+  .book-stage.is-closed:not(.is-cover-moving) .cover-leaf:focus-visible {
+    transform: translateZ(0.5px) rotateY(10deg);
+  }
 }
 
 .cover-front img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  object-position: center;
   display: block;
   pointer-events: none;
+  filter: drop-shadow(0 24px 40px rgba(0, 0, 0, 0.75));
 }
 
 
+/* === 单页模式（竖屏）：只显示一页，书脊视为在右侧 === */
+/* 媒体查询条件与 Book.astro 中的 SINGLE_PAGE_QUERY 保持一致 */
+@media (max-aspect-ratio: 1/1) {
+  .book-viewport {
+    width: 100cqw;
+    height: 100cqh;
+  }
 
-.book-stage.is-open .page-box-left,
-.book-stage.is-open .page-box-right {
-  visibility: visible;
+  /* 封面按原图比例居中，书页比封面大，所以合上时隐藏书页、翻开时淡入 */
+  .book-stage {
+    --cover-w: min(100cqw, 100cqh * 724 / 1024);
+    --cover-h: calc(var(--cover-w) * 1024 / 724);
+  }
+
+  .book-stage.is-closed {
+    transform: none;
+  }
+
+  .book-inner {
+    transition: opacity calc(var(--cover-ms) * 0.5) ease;
+  }
+
+  .book-stage.is-closed .book-inner {
+    opacity: 0;
+  }
+
+  .book-inner > .page-box-left {
+    width: 100%;
+  }
+
+  .page-content {
+    height: 78%;
+  }
+
+  .book-inner > .page-box-right,
+  .spine-crease {
+    display: none;
+  }
+
+  .leaf,
+  .leaf.leaf--right {
+    left: 0;
+    width: 100%;
+    transform-origin: 100% 50%;
+  }
+
+  .leaf.cover-leaf {
+    top: calc((100% - var(--cover-h)) / 2);
+    left: calc((100% - var(--cover-w)) / 2);
+    width: var(--cover-w);
+    height: var(--cover-h);
+  }
+
+  .cover-leaf .leaf-back {
+    inset: 0;
+  }
 }
-
-
-.main-shell {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
-.book-shell {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-
-.book-inner {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  display: flex;
-  border-radius: 2px;
-}
-
-
-
